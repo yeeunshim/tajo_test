@@ -20,6 +20,7 @@ package org.apache.tajo.worker;
 
 import org.apache.tajo.catalog.statistics.TableStats;
 import org.apache.tajo.util.FileUtil;
+import org.mortbay.log.Log;
 
 import java.net.URI;
 import java.util.Collection;
@@ -47,18 +48,22 @@ public class TaskHistory {
     private String uri;
     private long fileLen;
     private int messageReceiveCount;
+    private int startcount=1;
+    private int finishcount=1;
 
     public long getStartTime() {
-      return startTime;
-    }
+        Log.info("====================>" + startcount + "Fetch Start time : " + startTime);
+        startcount++;
+        return startTime; }
 
     public void setStartTime(long startTime) {
       this.startTime = startTime;
     }
 
     public long getFinishTime() {
-      return finishTime;
-    }
+        Log.info("====================>" + finishcount + "Fetch Finish time : " + finishTime);
+        finishcount++;
+        return finishTime; }
 
     public void setFinishTime(long finishTime) {
       this.finishTime = finishTime;

@@ -106,6 +106,7 @@ public class Task {
   private Schema finalSchema = null;
   private TupleComparator sortComp = null;
   private ClientSocketChannelFactory channelFactory = null;
+  private TaskHistory taskHistory = null;
 
   static final String OUTPUT_FILE_PREFIX="part-";
   static final ThreadLocal<NumberFormat> OUTPUT_FILE_FORMAT_SUBQUERY =
@@ -260,8 +261,13 @@ public class Task {
   }
 
   public void fetch() {
+      int i=0;
     for (Fetcher f : fetcherRunners) {
       taskRunnerContext.getFetchLauncher().submit(new FetchRunner(context, f));
+        if(i==0){
+            LOG.info("FETCH starttime : " + System.currentTimeMillis());
+            i++;
+        }
     }
   }
 
@@ -351,6 +357,7 @@ public class Task {
 
   private void waitForFetch() throws InterruptedException, IOException {
     context.getFetchLatch().await();
+    LOG.info("FETCH finishtime : " + System.currentTimeMillis());
     LOG.info(context.getTaskId() + " All fetches are done!");
     Collection<String> inputs = Lists.newArrayList(context.getInputTables());
     for (String inputTable: inputs) {
@@ -557,7 +564,9 @@ public class Task {
       int retryNum = 0;
       int maxRetryNum = 5;
       int retryWaitTime = 1000;
-
+      int st=1;
+      int fin=1;
+      LOG.info("TEST-------------------------starttime" + startTime);
       try { // for releasing fetch latch
         while(retryNum < maxRetryNum) {
           if (retryNum > 0) {
@@ -585,6 +594,7 @@ public class Task {
       if (retryNum == maxRetryNum) {
         LOG.error("ERROR: the maximum retry (" + retryNum + ") on the fetch exceeded (" + fetcher.getURI() + ")");
       }
+        LOG.info("TEST-------------------------" + fin++ +"finishtime" + finishTime);
     }
   }
 

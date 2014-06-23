@@ -36,6 +36,7 @@
 <%@ page import="java.text.NumberFormat" %>
 <%@ page import="org.apache.tajo.engine.planner.PlannerUtil" %>
 <%@ page import="org.apache.tajo.util.FileUtil" %>
+<%@ page import="org.apache.commons.logging.Log" %>
 
 <%
   String paramQueryId = request.getParameter("queryId");
@@ -184,7 +185,7 @@
     <input type="hidden" name="sortOrder" value="<%=sortOrder%>"/>
   </form>
   <table border="1" width="100%" class="border_table">
-    <tr><th>No</th><th><a href='<%=url%>id'>Id</a></th><th>Status</th><th>Progress</th><th><a href='<%=url%>startTime'>Started</a></th><th><a href='<%=url%>runTime'>Running Time</a></th><th><a href='<%=url%>host'>Host</a></th></tr>
+    <tr><th>No</th><th><a href='<%=url%>id'>Id</a></th><th>Status</th><th>Progress</th><th><a href='<%=url%>startTime'>Started</a></th><th><a href='<%=url%>runTime'>Running Time</a></th><th><a href='<%=url%>host'>Host</a></th><th>TaskInfo</th></tr>
     <%
       JSPUtil.sortQueryUnit(queryUnits, sort, sortOrder);
       int rowNo = 1;
@@ -205,11 +206,13 @@
                   QueryUnitAttempt lastAttempt = eachQueryUnit.getLastAttempt();
                   if(lastAttempt != null) {
                     QueryUnitAttemptId lastAttemptId = lastAttempt.getId();
-                    queryUnitHost = "<a href='http://" + eachQueryUnit.getSucceededHost() + ":" + worker.getInfoPort() + "/taskdetail.jsp?queryUnitAttemptId=" + lastAttemptId + "'>" + eachQueryUnit.getSucceededHost() + "</a>";
+                    //queryUnitHost = "<a href='http://" + eachQueryUnit.getSucceededHost() + ":" + worker.getInfoPort() + "/taskdetail.jsp?queryUnitAttemptId=" + lastAttemptId + "'>" + eachQueryUnit.getSucceededHost() + "</a>";
+                    queryUnitHost = "http://" + eachQueryUnit.getSucceededHost() + ":" + worker.getInfoPort() + "/taskdetail.jsp?queryUnitAttemptId=" + lastAttemptId;
+
                   }
               }
           }
-
+          //queryUnitHost = "http://" + eachQueryUnit.getSucceededHost() + ":" + worker.getInfoPort() + "/taskdetail.jsp?queryUnitAttemptId=" + lastAttemptId;
     %>
     <tr>
       <td><%=rowNo%></td>
@@ -219,6 +222,7 @@
       <td><%=eachQueryUnit.getLaunchTime() == 0 ? "-" : df.format(eachQueryUnit.getLaunchTime())%></td>
       <td align='right'><%=eachQueryUnit.getLaunchTime() == 0 ? "-" : eachQueryUnit.getRunningTime() + " ms"%></td>
       <td><%=queryUnitHost%></td>
+      <td><a href="<%=queryUnitHost%>"><%=rowNo%></a></td>
     </tr>
     <%
         rowNo++;
