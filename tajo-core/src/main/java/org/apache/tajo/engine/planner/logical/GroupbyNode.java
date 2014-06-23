@@ -148,6 +148,48 @@ public class GroupbyNode extends UnaryNode implements Projectable, Cloneable {
     return grp;
   }
 
+  public String getShortPlanString() {
+    StringBuilder sb = new StringBuilder();
+    sb.append(getType().name() + "(" + getPID() + ")").append("(");
+    Column [] groupingColumns = this.groupingColumns;
+    for (int j = 0; j < groupingColumns.length; j++) {
+      sb.append(groupingColumns[j].getSimpleName());
+      if(j < groupingColumns.length - 1) {
+        sb.append(",");
+      }
+    }
+
+    sb.append(")");
+
+    // there can be no aggregation functions
+    if (hasAggFunctions()) {
+      sb.append(", exprs: (");
+
+      for (int j = 0; j < aggrFunctions.length; j++) {
+        sb.append(aggrFunctions[j]);
+        if(j < aggrFunctions.length - 1) {
+          sb.append(",");
+        }
+      }
+      sb.append(")");
+    }
+
+    if (targets != null) {
+      sb.append(", target list:{");
+      for (int i = 0; i < targets.length; i++) {
+        sb.append(targets[i]);
+        if (i < targets.length - 1) {
+          sb.append(", ");
+        }
+      }
+      sb.append("}");
+    }
+    sb.append(", out schema:").append(getOutSchema().toString());
+    sb.append(", in schema:").append(getInSchema().toString());
+
+    return sb.toString();
+  }
+
   @Override
   public PlanString getPlanString() {
     PlanString planStr = new PlanString(this);
@@ -194,5 +236,19 @@ public class GroupbyNode extends UnaryNode implements Projectable, Cloneable {
     planStr.addDetail("in schema:").appendDetail(getInSchema().toString());
 
     return planStr;
+  }
+
+  /**
+   * It checks if an alias name included in the target of this node is for aggregation function.
+   * If so, it returns TRUE. Otherwise, it returns FALSE.
+   */
+  public boolean isAggregationColumn(String simpleName) {
+    for (int i = groupingColumns.length; i < targets.length; i++) {
+      if (simpleName.equals(targets[i].getNamedColumn().getSimpleName()) ||
+          simpleName.equals(targets[i].getAlias())) {
+        return true;
+      }
+    }
+    return false;
   }
 }

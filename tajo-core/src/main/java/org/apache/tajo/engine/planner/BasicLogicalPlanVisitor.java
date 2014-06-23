@@ -74,6 +74,9 @@ public class BasicLogicalPlanVisitor<CONTEXT, RESULT> implements LogicalPlanVisi
       case GROUP_BY:
         current = visitGroupBy(context, plan, block, (GroupbyNode) node, stack);
         break;
+      case DISTINCT_GROUP_BY:
+        current = visitDistinct(context, plan, block, (DistinctGroupbyNode) node, stack);
+        break;
       case SELECTION:
         current = visitFilter(context, plan, block, (SelectionNode) node, stack);
         break;
@@ -121,6 +124,9 @@ public class BasicLogicalPlanVisitor<CONTEXT, RESULT> implements LogicalPlanVisi
         break;
       case ALTER_TABLE:
         current = visitAlterTable(context, plan, block, (AlterTableNode) node, stack);
+        break;
+      case TRUNCATE_TABLE:
+        current = visitTruncateTable(context, plan, block, (TruncateTableNode) node, stack);
         break;
       default:
         throw new PlanningException("Unknown logical node type: " + node.getType());
@@ -185,6 +191,15 @@ public class BasicLogicalPlanVisitor<CONTEXT, RESULT> implements LogicalPlanVisi
   }
 
   @Override
+  public RESULT visitDistinct(CONTEXT context, LogicalPlan plan, LogicalPlan.QueryBlock block, DistinctGroupbyNode node,
+                             Stack<LogicalNode> stack) throws PlanningException {
+    stack.push(node);
+    RESULT result = visit(context, plan, block, node.getChild(), stack);
+    stack.pop();
+    return result;
+  }
+
+  @Override
   public RESULT visitFilter(CONTEXT context, LogicalPlan plan, LogicalPlan.QueryBlock block, SelectionNode node,
                             Stack<LogicalNode> stack) throws PlanningException {
     stack.push(node);
@@ -240,7 +255,7 @@ public class BasicLogicalPlanVisitor<CONTEXT, RESULT> implements LogicalPlanVisi
                                    TableSubQueryNode node, Stack<LogicalNode> stack) throws PlanningException {
     stack.push(node);
     LogicalPlan.QueryBlock childBlock = plan.getBlock(node.getSubQuery());
-    RESULT result = visit(context, plan, childBlock, childBlock.getRoot(), new Stack<LogicalNode>());
+    RESULT result = visit(context, plan, childBlock, childBlock.getRoot(), stack);
     stack.pop();
     return result;
   }
@@ -316,4 +331,10 @@ public class BasicLogicalPlanVisitor<CONTEXT, RESULT> implements LogicalPlanVisi
                                  Stack<LogicalNode> stack) {
         return null;
     }
+
+  @Override
+  public RESULT visitTruncateTable(CONTEXT context, LogicalPlan plan, LogicalPlan.QueryBlock block,
+                                   TruncateTableNode node, Stack<LogicalNode> stack) throws PlanningException {
+    return null;
+  }
 }

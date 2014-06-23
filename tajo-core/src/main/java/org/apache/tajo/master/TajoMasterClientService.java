@@ -252,15 +252,13 @@ public class TajoMasterClientService extends AbstractService {
 
     @Override
     public SubmitQueryResponse submitQuery(RpcController controller, QueryRequest request) throws ServiceException {
-
-
       try {
         Session session = context.getSessionManager().getSession(request.getSessionId().getId());
 
         if(LOG.isDebugEnabled()) {
           LOG.debug("Query [" + request.getQuery() + "] is submitted");
         }
-        return context.getGlobalEngine().executeQuery(session, request.getQuery());
+        return context.getGlobalEngine().executeQuery(session, request.getQuery(), request.getIsJson());
       } catch (Exception e) {
         LOG.error(e.getMessage(), e);
         SubmitQueryResponse.Builder responseBuilder = ClientProtos.SubmitQueryResponse.newBuilder();
@@ -282,7 +280,7 @@ public class TajoMasterClientService extends AbstractService {
         Session session = context.getSessionManager().getSession(request.getSessionId().getId());
         UpdateQueryResponse.Builder builder = UpdateQueryResponse.newBuilder();
         try {
-          context.getGlobalEngine().updateQuery(session, request.getQuery());
+          context.getGlobalEngine().updateQuery(session, request.getQuery(), request.getIsJson());
           builder.setResultCode(ResultCode.OK);
           return builder.build();
         } catch (Exception e) {
@@ -356,9 +354,8 @@ public class TajoMasterClientService extends AbstractService {
         context.getSessionManager().touch(request.getSessionId().getId());
         GetQueryListResponse.Builder builder= GetQueryListResponse.newBuilder();
 
-        Collection<QueryInProgress> queries
-          = context.getQueryJobManager().getRunningQueries();
-
+        Collection<QueryInProgress> queries = new ArrayList<QueryInProgress>(context.getQueryJobManager().getSubmittedQueries());
+        queries.addAll(context.getQueryJobManager().getRunningQueries());
         BriefQueryInfo.Builder infoBuilder = BriefQueryInfo.newBuilder();
 
         for (QueryInProgress queryInProgress : queries) {

@@ -54,20 +54,30 @@ public class HashAggregateExec extends AggregationExec {
       for(int i = 0; i < groupingKeyIds.length; i++) {
         keyTuple.put(i, tuple.get(groupingKeyIds[i]));
       }
-      
-      if(hashTable.containsKey(keyTuple)) {
-        FunctionContext [] contexts = hashTable.get(keyTuple);
+
+      FunctionContext [] contexts = hashTable.get(keyTuple);
+      if(contexts != null) {
         for(int i = 0; i < aggFunctions.length; i++) {
           aggFunctions[i].merge(contexts[i], inSchema, tuple);
         }
       } else { // if the key occurs firstly
-        FunctionContext contexts [] = new FunctionContext[aggFunctionsNum];
+        contexts = new FunctionContext[aggFunctionsNum];
         for(int i = 0; i < aggFunctionsNum; i++) {
           contexts[i] = aggFunctions[i].newContext();
           aggFunctions[i].merge(contexts[i], inSchema, tuple);
         }
         hashTable.put(keyTuple, contexts);
       }
+    }
+
+    // If HashAggregateExec received NullDatum and didn't has any grouping keys,
+    // it should return primitive values for NullLDatum.
+    if (groupingKeyNum == 0 && aggFunctionsNum > 0 && hashTable.entrySet().size() == 0) {
+      FunctionContext[] contexts = new FunctionContext[aggFunctionsNum];
+      for(int i = 0; i < aggFunctionsNum; i++) {
+        contexts[i] = aggFunctions[i].newContext();
+      }
+      hashTable.put(null, contexts);
     }
   }
 
@@ -101,7 +111,7 @@ public class HashAggregateExec extends AggregationExec {
   }
 
   @Override
-  public void rescan() throws IOException {    
+  public void rescan() throws IOException {
     iterator = hashTable.entrySet().iterator();
   }
 

@@ -34,6 +34,7 @@ import org.apache.tajo.catalog.proto.CatalogProtos;
 import org.apache.tajo.cli.InvalidClientSessionException;
 import org.apache.tajo.conf.TajoConf;
 import org.apache.tajo.conf.TajoConf.ConfVars;
+import org.apache.tajo.ipc.ClientProtos;
 import org.apache.tajo.ipc.ClientProtos.*;
 import org.apache.tajo.ipc.QueryMasterClientProtocol;
 import org.apache.tajo.ipc.QueryMasterClientProtocol.QueryMasterClientProtocolService;
@@ -311,6 +312,23 @@ public class TajoClient implements Closeable {
         final QueryRequest.Builder builder = QueryRequest.newBuilder();
         builder.setSessionId(sessionId);
         builder.setQuery(sql);
+        builder.setIsJson(false);
+        TajoMasterClientProtocolService.BlockingInterface tajoMasterService = client.getStub();
+        return tajoMasterService.submitQuery(null, builder.build());
+      }
+    }.withRetries();
+  }
+
+  public SubmitQueryResponse executeQueryWithJson(final String json) throws ServiceException {
+    return new ServerCallable<SubmitQueryResponse>(connPool, tajoMasterAddr,
+        TajoMasterClientProtocol.class, false, true) {
+      public SubmitQueryResponse call(NettyClientBase client) throws ServiceException {
+        checkSessionAndGet(client);
+
+        final QueryRequest.Builder builder = QueryRequest.newBuilder();
+        builder.setSessionId(sessionId);
+        builder.setQuery(json);
+        builder.setIsJson(true);
         TajoMasterClientProtocolService.BlockingInterface tajoMasterService = client.getStub();
         return tajoMasterService.submitQuery(null, builder.build());
       }
@@ -327,19 +345,37 @@ public class TajoClient implements Closeable {
    */
   public ResultSet executeQueryAndGetResult(final String sql)
       throws ServiceException, IOException {
-    SubmitQueryResponse response = new ServerCallable<SubmitQueryResponse>(connPool, tajoMasterAddr,
-        TajoMasterClientProtocol.class, false, true) {
-      public SubmitQueryResponse call(NettyClientBase client) throws ServiceException {
-        checkSessionAndGet(client);
+    SubmitQueryResponse response = executeQuery(sql);
 
-        final QueryRequest.Builder builder = QueryRequest.newBuilder();
-        builder.setSessionId(sessionId);
-        builder.setQuery(sql);
-        TajoMasterClientProtocolService.BlockingInterface tajoMasterService = client.getStub();
-        return tajoMasterService.submitQuery(null, builder.build());
+    if (response.getResultCode() == ClientProtos.ResultCode.ERROR) {
+      throw new ServiceException(response.getErrorTrace());
+    }
+    QueryId queryId = new QueryId(response.getQueryId());
+    if (response.getIsForwarded()) {
+      if (queryId.equals(QueryIdFactory.NULL_QUERY_ID)) {
+        return this.createNullResultSet(queryId);
+      } else {
+        return this.getQueryResultAndWait(queryId);
       }
-    }.withRetries();
+    } else {
+      // If a non-forwarded insert into query
+      if (queryId.equals(QueryIdFactory.NULL_QUERY_ID) && response.getMaxRowNum() < 0) {
+        return this.createNullResultSet(queryId);
+      } else {
+        if (response.hasResultSet() || response.hasTableDesc()) {
+          return createResultSet(this, response);
+        } else {
+          return this.createNullResultSet(queryId);
+        }
+      }
+    }
+  }
 
+  public ResultSet executeJsonQueryAndGetResult(final String json) throws ServiceException, IOException {
+    SubmitQueryResponse response = executeQueryWithJson(json);
+    if (response.getResultCode() == ClientProtos.ResultCode.ERROR) {
+      throw new ServiceException(response.getErrorTrace());
+    }
     QueryId queryId = new QueryId(response.getQueryId());
     if (response.getIsForwarded()) {
       if (queryId.equals(QueryIdFactory.NULL_QUERY_ID)) {
@@ -536,6 +572,31 @@ public class TajoClient implements Closeable {
         QueryRequest.Builder builder = QueryRequest.newBuilder();
         builder.setSessionId(sessionId);
         builder.setQuery(sql);
+        builder.setIsJson(false);
+        TajoMasterClientProtocolService.BlockingInterface tajoMasterService = client.getStub();
+        UpdateQueryResponse response = tajoMasterService.updateQuery(null, builder.build());
+        if (response.getResultCode() == ResultCode.OK) {
+          return true;
+        } else {
+          if (response.hasErrorMessage()) {
+            System.err.println("ERROR: " + response.getErrorMessage());
+          }
+          return false;
+        }
+      }
+    }.withRetries();
+  }
+
+  public boolean updateQueryWithJson(final String json) throws ServiceException {
+    return new ServerCallable<Boolean>(connPool, tajoMasterAddr,
+        TajoMasterClientProtocol.class, false, true) {
+      public Boolean call(NettyClientBase client) throws ServiceException {
+        checkSessionAndGet(client);
+
+        QueryRequest.Builder builder = QueryRequest.newBuilder();
+        builder.setSessionId(sessionId);
+        builder.setQuery(json);
+        builder.setIsJson(true);
         TajoMasterClientProtocolService.BlockingInterface tajoMasterService = client.getStub();
         UpdateQueryResponse response = tajoMasterService.updateQuery(null, builder.build());
         if (response.getResultCode() == ResultCode.OK) {
@@ -799,7 +860,7 @@ public class TajoClient implements Closeable {
     }.withRetries();
   }
 
-  public boolean killQuery(final QueryId queryId)
+  public QueryStatus killQuery(final QueryId queryId)
       throws ServiceException, IOException {
 
     QueryStatus status = getQueryStatus(queryId);
@@ -819,7 +880,9 @@ public class TajoClient implements Closeable {
 
       long currentTimeMillis = System.currentTimeMillis();
       long timeKillIssued = currentTimeMillis;
-      while ((currentTimeMillis < timeKillIssued + 10000L) && (status.getState() != QueryState.QUERY_KILLED)) {
+      while ((currentTimeMillis < timeKillIssued + 10000L)
+          && ((status.getState() != QueryState.QUERY_KILLED)
+          || (status.getState() == QueryState.QUERY_KILL_WAIT))) {
         try {
           Thread.sleep(100L);
         } catch(InterruptedException ie) {
@@ -828,13 +891,13 @@ public class TajoClient implements Closeable {
         currentTimeMillis = System.currentTimeMillis();
         status = getQueryStatus(queryId);
       }
-      return status.getState() == QueryState.QUERY_KILLED;
+
     } catch(Exception e) {
       LOG.debug("Error when checking for application status", e);
-      return false;
     } finally {
       connPool.releaseConnection(tmClient);
     }
+    return status;
   }
 
   public List<CatalogProtos.FunctionDescProto> getFunctions(final String functionName) throws ServiceException {

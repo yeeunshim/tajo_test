@@ -1141,7 +1141,8 @@ public class HiveQLAnalyzer extends HiveQLParserBaseVisitor<Expr> {
 
     boolean isDistinct = false;
     if (ctx.getChild(2) != null) {
-      if (ctx.getChild(2) instanceof TerminalNodeImpl && ctx.getChild(2).getText().equalsIgnoreCase("DISTINCT")) {
+      if (ctx.getChild(2) instanceof TerminalNodeImpl
+          && ctx.getChild(2).getText().equalsIgnoreCase("DISTINCT_GROUP_BY")) {
         isDistinct = true;
       }
     }
@@ -1422,6 +1423,11 @@ public class HiveQLAnalyzer extends HiveQLParserBaseVisitor<Expr> {
       createTable = new CreateTable(ctx.name.getText(), ctx.ifNotExists() != null);
       if (ctx.KW_EXTERNAL() != null) {
         createTable.setExternal();
+      }
+
+      if(ctx.KW_LIKE() != null)  {
+        createTable.setLikeParentTable(ctx.likeName.getText());
+        return createTable;
       }
 
       if (ctx.tableFileFormat() != null) {

@@ -236,7 +236,7 @@ public class TestJoinQuery extends QueryTestCaseBase {
 
   @Test
   public void testCrossJoinWithAsterisk4() throws Exception {
-    // select length(r_regionkey), *, c_custkey*10 from customer, region
+    // select length(r_comment) as len, *, c_custkey*10 from customer, region order by len,r_regionkey,r_name
     ResultSet res = executeQuery();
     assertResultSet(res);
     cleanupQuery(res);
@@ -318,6 +318,60 @@ public class TestJoinQuery extends QueryTestCaseBase {
     assertTableExists("joins.part_");
     executeString("CREATE TABLE JOINS.supplier_ as SELECT * FROM supplier");
     assertTableExists("joins.supplier_");
+    ResultSet res = executeQuery();
+    assertResultSet(res);
+    cleanupQuery(res);
+
+    executeString("DROP TABLE JOINS.part_ PURGE");
+    executeString("DROP TABLE JOINS.supplier_ PURGE");
+    executeString("DROP DATABASE JOINS");
+  }
+
+  @Test
+  public final void testJoinWithJson() throws Exception {
+    // select length(r_comment) as len, *, c_custkey*10 from customer, region order by len,r_regionkey,r_name
+    ResultSet res = executeJsonQuery();
+    assertResultSet(res);
+    cleanupQuery(res);
+  }
+
+  @Test
+  public final void testJoinWithJson2() throws Exception {
+    /*
+    select t.n_nationkey, t.n_name, t.n_regionkey, t.n_comment, ps.ps_availqty, s.s_suppkey
+    from (
+      select n_nationkey, n_name, n_regionkey, n_comment
+      from nation n
+      join region r on (n.n_regionkey = r.r_regionkey)
+    ) t
+    join supplier s on (s.s_nationkey = t.n_nationkey)
+    join partsupp ps on (s.s_suppkey = ps.ps_suppkey)
+    where t.n_name in ('ARGENTINA','ETHIOPIA', 'MOROCCO');
+     */
+    ResultSet res = executeJsonQuery();
+    assertResultSet(res);
+    cleanupQuery(res);
+  }
+
+  @Test
+  public final void testJoinOnMultipleDatabasesWithJson() throws Exception {
+    executeString("CREATE DATABASE JOINS");
+    assertDatabaseExists("joins");
+    executeString("CREATE TABLE JOINS.part_ as SELECT * FROM part");
+    assertTableExists("joins.part_");
+    executeString("CREATE TABLE JOINS.supplier_ as SELECT * FROM supplier");
+    assertTableExists("joins.supplier_");
+    ResultSet res = executeJsonQuery();
+    assertResultSet(res);
+    cleanupQuery(res);
+
+    executeString("DROP TABLE JOINS.part_ PURGE");
+    executeString("DROP TABLE JOINS.supplier_ PURGE");
+    executeString("DROP DATABASE JOINS");
+  }
+
+  @Test
+  public final void testJoinAsterisk() throws Exception {
     ResultSet res = executeQuery();
     assertResultSet(res);
     cleanupQuery(res);

@@ -174,10 +174,9 @@ public class TestHCatalogStore {
   @Test
   public void testTableWithNullValue() throws Exception {
     KeyValueSet options = new KeyValueSet();
-    options.put(StorageConstants.CSVFILE_DELIMITER, StringEscapeUtils.escapeJava("\u0001"));
-    options.put(StorageConstants.CSVFILE_NULL, StringEscapeUtils.escapeJava("\\N"));
+    options.put(StorageConstants.CSVFILE_DELIMITER, StringEscapeUtils.escapeJava("\u0002"));
+    options.put(StorageConstants.CSVFILE_NULL, StringEscapeUtils.escapeJava("\u0003"));
     TableMeta meta = new TableMeta(CatalogProtos.StoreType.CSV, options);
-
 
     org.apache.tajo.catalog.Schema schema = new org.apache.tajo.catalog.Schema();
     schema.addColumn("s_suppkey", TajoDataTypes.Type.INT4);
@@ -190,7 +189,6 @@ public class TestHCatalogStore {
 
     TableDesc table = new TableDesc(CatalogUtil.buildFQName(DB_NAME, SUPPLIER), schema, meta,
         new Path(warehousePath, new Path(DB_NAME, SUPPLIER)));
-
 
     store.createTable(table.getProto());
     assertTrue(store.existTable(DB_NAME, SUPPLIER));
@@ -208,7 +206,15 @@ public class TestHCatalogStore {
 
     assertEquals(table.getMeta().getOption(StorageConstants.CSVFILE_NULL),
         table1.getMeta().getOption(StorageConstants.CSVFILE_NULL));
+
+    assertEquals(table1.getMeta().getOption(StorageConstants.CSVFILE_DELIMITER),
+        StringEscapeUtils.escapeJava("\u0002"));
+
+    assertEquals(table1.getMeta().getOption(StorageConstants.CSVFILE_NULL),
+        StringEscapeUtils.escapeJava("\u0003"));
+
     store.dropTable(DB_NAME, SUPPLIER);
+
   }
 
   @Test
@@ -363,4 +369,34 @@ public class TestHCatalogStore {
     store.dropTable(DB_NAME, REGION);
   }
 
+
+  @Test
+  public void testTableUsingParquet() throws Exception {
+    TableMeta meta = new TableMeta(CatalogProtos.StoreType.PARQUET, new KeyValueSet());
+
+    org.apache.tajo.catalog.Schema schema = new org.apache.tajo.catalog.Schema();
+    schema.addColumn("c_custkey", TajoDataTypes.Type.INT4);
+    schema.addColumn("c_name", TajoDataTypes.Type.TEXT);
+    schema.addColumn("c_address", TajoDataTypes.Type.TEXT);
+    schema.addColumn("c_nationkey", TajoDataTypes.Type.INT4);
+    schema.addColumn("c_phone", TajoDataTypes.Type.TEXT);
+    schema.addColumn("c_acctbal", TajoDataTypes.Type.FLOAT8);
+    schema.addColumn("c_mktsegment", TajoDataTypes.Type.TEXT);
+    schema.addColumn("c_comment", TajoDataTypes.Type.TEXT);
+
+    TableDesc table = new TableDesc(CatalogUtil.buildFQName(DB_NAME, CUSTOMER), schema, meta,
+        new Path(warehousePath, new Path(DB_NAME, CUSTOMER)));
+    store.createTable(table.getProto());
+    assertTrue(store.existTable(DB_NAME, CUSTOMER));
+
+    TableDesc table1 = new TableDesc(store.getTable(DB_NAME, CUSTOMER));
+    assertEquals(table.getName(), table1.getName());
+    assertEquals(table.getPath(), table1.getPath());
+    assertEquals(table.getSchema().size(), table1.getSchema().size());
+    for (int i = 0; i < table.getSchema().size(); i++) {
+      assertEquals(table.getSchema().getColumn(i).getSimpleName(), table1.getSchema().getColumn(i).getSimpleName());
+    }
+
+    store.dropTable(DB_NAME, CUSTOMER);
+  }
 }

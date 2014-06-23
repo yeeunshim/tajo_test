@@ -21,7 +21,6 @@ package org.apache.tajo.master.querymaster;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.service.CompositeService;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.event.EventHandler;
@@ -34,6 +33,7 @@ import org.apache.tajo.engine.query.QueryContext;
 import org.apache.tajo.ipc.QueryMasterProtocol;
 import org.apache.tajo.ipc.QueryMasterProtocol.QueryMasterProtocolService;
 import org.apache.tajo.ipc.TajoWorkerProtocol;
+import org.apache.tajo.ipc.TajoWorkerProtocol.QueryExecutionRequestProto;
 import org.apache.tajo.master.TajoAsyncDispatcher;
 import org.apache.tajo.master.TajoMaster;
 import org.apache.tajo.master.rm.WorkerResourceManager;
@@ -42,6 +42,7 @@ import org.apache.tajo.rpc.NettyClientBase;
 import org.apache.tajo.rpc.NullCallback;
 import org.apache.tajo.rpc.RpcConnectionPool;
 import org.apache.tajo.rpc.protocolrecords.PrimitiveProtos;
+import org.apache.tajo.util.NetUtils;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -79,7 +80,7 @@ public class QueryInProgress extends CompositeService {
       TajoMaster.MasterContext masterContext,
       Session session,
       QueryContext queryContext,
-      QueryId queryId, String sql, LogicalRootNode plan) {
+      QueryId queryId, String sql, String jsonExpr, LogicalRootNode plan) {
     super(QueryInProgress.class.getName());
     this.masterContext = masterContext;
     this.session = session;
@@ -87,7 +88,7 @@ public class QueryInProgress extends CompositeService {
     this.queryId = queryId;
     this.plan = plan;
 
-    queryInfo = new QueryInfo(queryId, sql);
+    queryInfo = new QueryInfo(queryId, sql, jsonExpr);
     queryInfo.setStartTime(System.currentTimeMillis());
   }
 
@@ -100,8 +101,10 @@ public class QueryInProgress extends CompositeService {
     super.init(conf);
   }
 
-  public void kill() {
-    queryMasterRpcClient.killQuery(null, queryId.getProto(), NullCallback.get());
+  public synchronized void kill() {
+    if(queryMasterRpcClient != null){
+      queryMasterRpcClient.killQuery(null, queryId.getProto(), NullCallback.get());
+    }
   }
 
   @Override
@@ -201,13 +204,8 @@ public class QueryInProgress extends CompositeService {
     }
   }
 
-  public QueryMasterProtocolService getQueryMasterRpcClient() {
-    return queryMasterRpcClient;
-  }
-
   private void connectQueryMaster() throws Exception {
-    InetSocketAddress addr = NetUtils.createSocketAddrForHost(
-        queryInfo.getQueryMasterHost(), queryInfo.getQueryMasterPort());
+    InetSocketAddress addr = NetUtils.createSocketAddr(queryInfo.getQueryMasterHost(), queryInfo.getQueryMasterPort());
     LOG.info("Connect to QueryMaster:" + addr);
     queryMasterRpc =
         RpcConnectionPool.getPool((TajoConf) getConfig()).getConnection(addr, QueryMasterProtocol.class, true);
@@ -230,15 +228,15 @@ public class QueryInProgress extends CompositeService {
       }
       LOG.info("Call executeQuery to :" +
           queryInfo.getQueryMasterHost() + ":" + queryInfo.getQueryMasterPort() + "," + queryId);
-      queryMasterRpcClient.executeQuery(
-          null,
-          TajoWorkerProtocol.QueryExecutionRequestProto.newBuilder()
-              .setQueryId(queryId.getProto())
-              .setSession(session.getProto())
-              .setQueryContext(queryContext.getProto())
-              .setSql(PrimitiveProtos.StringProto.newBuilder().setValue(queryInfo.getSql()))
-              .setLogicalPlanJson(PrimitiveProtos.StringProto.newBuilder().setValue(plan.toJson()).build())
-              .build(), NullCallback.get());
+
+      QueryExecutionRequestProto.Builder builder = TajoWorkerProtocol.QueryExecutionRequestProto.newBuilder();
+      builder.setQueryId(queryId.getProto())
+          .setSession(session.getProto())
+          .setQueryContext(queryContext.getProto())
+          .setExprInJson(PrimitiveProtos.StringProto.newBuilder().setValue(queryInfo.getJsonExpr()))
+          .setLogicalPlanJson(PrimitiveProtos.StringProto.newBuilder().setValue(plan.toJson()).build());
+
+      queryMasterRpcClient.executeQuery(null, builder.build(), NullCallback.get());
       querySubmitted.set(true);
     } catch (Exception e) {
       LOG.error(e.getMessage(), e);
@@ -257,6 +255,10 @@ public class QueryInProgress extends CompositeService {
 
   public QueryInfo getQueryInfo() {
     return this.queryInfo;
+  }
+
+  public boolean isStarted() {
+    return this.querySubmitted.get();
   }
 
   private void heartbeat(QueryInfo queryInfo) {

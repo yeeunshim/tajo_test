@@ -32,6 +32,8 @@ import org.apache.tajo.catalog.TableDesc;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.sql.ResultSet;
 
 import static org.junit.Assert.*;
@@ -147,6 +149,7 @@ public class TestInsertQuery extends QueryTestCaseBase {
     if (!testingCluster.isHCatalogStoreRunning()) {
       assertEquals(2, desc.getStats().getNumRows().intValue());
     }
+    executeString("DROP TABLE full_table_csv PURGE");
   }
 
   @Test
@@ -174,6 +177,7 @@ public class TestInsertQuery extends QueryTestCaseBase {
     if (!testingCluster.isHCatalogStoreRunning()) {
       assertEquals(2, orderKeys.getStats().getNumRows().intValue());
     }
+    executeString("DROP TABLE " + tableName + " PURGE");
   }
 
   @Test
@@ -191,6 +195,7 @@ public class TestInsertQuery extends QueryTestCaseBase {
     if (!testingCluster.isHCatalogStoreRunning()) {
       assertEquals(2, desc.getStats().getNumRows().intValue());
     }
+    executeString("DROP TABLE " + tableName + " PURGE");
   }
 
   @Test
@@ -226,6 +231,7 @@ public class TestInsertQuery extends QueryTestCaseBase {
       CompressionCodec codec = factory.getCodec(file.getPath());
       assertTrue(codec instanceof DeflateCodec);
     }
+    executeString("DROP TABLE " + tableName + " PURGE");
   }
 
   @Test
@@ -269,7 +275,7 @@ public class TestInsertQuery extends QueryTestCaseBase {
       res = executeString("select l_orderkey, l_partkey from full_table_parquet;");
       assertResultSet(res, "testInsertOverwriteWithAsteriskUsingParquet2.result");
 
-      executeString("DROP TABLE full_table_parquet_ddl PURGE");
+      executeString("DROP TABLE full_table_parquet PURGE");
     }
   }
 
@@ -288,5 +294,197 @@ public class TestInsertQuery extends QueryTestCaseBase {
     if (!testingCluster.isHCatalogStoreRunning()) {
       assertEquals(5, desc.getStats().getNumRows().intValue());
     }
+    executeString("DROP TABLE table1 PURGE");
+  }
+
+  @Test
+  public final void testInsertOverwriteTableWithNonFromQuery() throws Exception {
+    String tableName = CatalogUtil.normalizeIdentifier("InsertOverwriteWithEvalQuery");
+    ResultSet res = executeString("create table " + tableName +" (col1 int4, col2 float4, col3 text)");
+    res.close();
+    CatalogService catalog = testingCluster.getMaster().getCatalog();
+    assertTrue(catalog.existsTable(getCurrentDatabase(), tableName));
+
+    res = executeString("insert overwrite into " + tableName
+        + " select 1::INT4, 2.1::FLOAT4, 'test'; ");
+
+    res.close();
+
+    TableDesc desc = catalog.getTableDesc(getCurrentDatabase(), tableName);
+    if (!testingCluster.isHCatalogStoreRunning()) {
+      assertEquals(1, desc.getStats().getNumRows().intValue());
+    }
+
+    res = executeString("select * from " + tableName + ";");
+    assertTrue(res.next());
+
+    assertEquals(3, res.getMetaData().getColumnCount());
+    assertEquals(1, res.getInt(1));
+    assertEquals(2.1f, res.getFloat(2), 10);
+    assertEquals("test", res.getString(3));
+
+    res.close();
+    executeString("DROP TABLE " + tableName + " PURGE");
+  }
+
+  @Test
+  public final void testInsertOverwriteTableWithNonFromQuery2() throws Exception {
+    String tableName = CatalogUtil.normalizeIdentifier("InsertOverwriteWithEvalQuery");
+    ResultSet res = executeString("create table " + tableName +" (col1 int4, col2 float4, col3 text)");
+    res.close();
+    CatalogService catalog = testingCluster.getMaster().getCatalog();
+    assertTrue(catalog.existsTable(getCurrentDatabase(), tableName));
+
+    res = executeString("insert overwrite into " + tableName + " (col1, col3) select 1::INT4, 'test';");
+    res.close();
+
+    TableDesc desc = catalog.getTableDesc(getCurrentDatabase(), tableName);
+    if (!testingCluster.isHCatalogStoreRunning()) {
+      assertEquals(1, desc.getStats().getNumRows().intValue());
+    }
+
+    res = executeString("select * from " + tableName + ";");
+    assertTrue(res.next());
+
+    assertEquals(3, res.getMetaData().getColumnCount());
+    assertEquals(1, res.getInt(1));
+    assertNull(res.getString(2));
+    assertEquals(0.0, res.getDouble(2), 10);
+    assertEquals("test", res.getString(3));
+
+    res.close();
+    executeString("DROP TABLE " + tableName + " PURGE");
+  }
+
+  @Test
+  public final void testInsertOverwritePathWithNonFromQuery() throws Exception {
+    ResultSet res = executeString("insert overwrite into location " +
+        "'/tajo-data/testInsertOverwritePathWithNonFromQuery' " +
+        "USING csv WITH ('csvfile.delimiter'='|','compression.codec'='org.apache.hadoop.io.compress.DeflateCodec') " +
+        "select 1::INT4, 2.1::FLOAT4, 'test'");
+
+    res.close();
+    FileSystem fs = FileSystem.get(testingCluster.getConfiguration());
+    Path path = new Path("/tajo-data/testInsertOverwritePathWithNonFromQuery");
+    assertTrue(fs.exists(path));
+    assertEquals(1, fs.listStatus(path).length);
+
+    CompressionCodecFactory factory = new CompressionCodecFactory(testingCluster.getConfiguration());
+    FileStatus file = fs.listStatus(path)[0];
+    CompressionCodec codec = factory.getCodec(file.getPath());
+    assertTrue(codec instanceof DeflateCodec);
+
+    BufferedReader reader = new BufferedReader(
+        new InputStreamReader(codec.createInputStream(fs.open(file.getPath()))));
+
+    try {
+      String line = reader.readLine();
+      assertNotNull(line);
+
+      String[] tokens = line.split("\\|");
+
+      assertEquals(3, tokens.length);
+      assertEquals("1", tokens[0]);
+      assertEquals("2.1", tokens[1]);
+      assertEquals("test", tokens[2]);
+    } finally {
+      reader.close();
+    }
+  }
+
+  @Test
+  public final void testInsertOverwriteWithUnion() throws Exception {
+    ResultSet res = executeFile("table1_ddl.sql");
+    res.close();
+
+    CatalogService catalog = testingCluster.getMaster().getCatalog();
+    assertTrue(catalog.existsTable(getCurrentDatabase(), "table1"));
+
+    res = executeFile("testInsertOverwriteWithUnion.sql");
+    res.close();
+
+    String tableDatas = getTableFileContents("table1");
+
+    String expected = "1|1|17.0\n" +
+        "1|1|36.0\n" +
+        "2|2|38.0\n" +
+        "3|2|45.0\n" +
+        "3|3|49.0\n" +
+        "1|3|173665.47\n" +
+        "2|4|46929.18\n" +
+        "3|2|193846.25\n";
+
+    assertNotNull(tableDatas);
+    assertEquals(expected, tableDatas);
+
+    executeString("DROP TABLE table1 PURGE");
+  }
+
+  @Test
+  public final void testInsertOverwriteWithUnionDifferentAlias() throws Exception {
+    ResultSet res = executeFile("table1_ddl.sql");
+    res.close();
+
+    CatalogService catalog = testingCluster.getMaster().getCatalog();
+    assertTrue(catalog.existsTable(getCurrentDatabase(), "table1"));
+
+    res = executeFile("testInsertOverwriteWithUnionDifferentAlias.sql");
+    res.close();
+
+    String tableDatas = getTableFileContents("table1");
+
+    String expected = "1|1|17.0\n" +
+        "1|1|36.0\n" +
+        "2|2|38.0\n" +
+        "3|2|45.0\n" +
+        "3|3|49.0\n" +
+        "1|3|173665.47\n" +
+        "2|4|46929.18\n" +
+        "3|2|193846.25\n";
+
+    assertNotNull(tableDatas);
+    assertEquals(expected, tableDatas);
+
+    executeString("DROP TABLE table1 PURGE");
+  }
+
+  @Test
+  public final void testInsertOverwriteLocationWithUnion() throws Exception {
+    ResultSet res = executeFile("testInsertOverwriteLocationWithUnion.sql");
+    res.close();
+
+    String resultDatas= getTableFileContents(new Path("/tajo-data/testInsertOverwriteLocationWithUnion"));
+
+    String expected = "1|1|17.0\n" +
+        "1|1|36.0\n" +
+        "2|2|38.0\n" +
+        "3|2|45.0\n" +
+        "3|3|49.0\n" +
+        "1|3|173665.47\n" +
+        "2|4|46929.18\n" +
+        "3|2|193846.25\n";
+
+    assertNotNull(resultDatas);
+    assertEquals(expected, resultDatas);
+  }
+
+  @Test
+  public final void testInsertOverwriteLocationWithUnionDifferenceAlias() throws Exception {
+    ResultSet res = executeFile("testInsertOverwriteLocationWithUnionDifferenceAlias.sql");
+    res.close();
+
+    String resultDatas= getTableFileContents(new Path("/tajo-data/testInsertOverwriteLocationWithUnionDifferenceAlias"));
+
+    String expected = "1|1|17.0\n" +
+        "1|1|36.0\n" +
+        "2|2|38.0\n" +
+        "3|2|45.0\n" +
+        "3|3|49.0\n" +
+        "1|3|173665.47\n" +
+        "2|4|46929.18\n" +
+        "3|2|193846.25\n";
+
+    assertNotNull(resultDatas);
+    assertEquals(expected, resultDatas);
   }
 }

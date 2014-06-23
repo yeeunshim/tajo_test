@@ -21,109 +21,180 @@ package org.apache.tajo.worker;
 import org.apache.tajo.catalog.statistics.TableStats;
 import org.apache.tajo.util.FileUtil;
 import org.mortbay.log.Log;
+import com.google.common.base.Objects;
+import com.google.common.collect.Lists;
+import org.apache.tajo.QueryUnitAttemptId;
+import org.apache.tajo.catalog.proto.CatalogProtos;
+import org.apache.tajo.common.ProtoObject;
 
-import java.net.URI;
-import java.util.Collection;
-import java.util.Map;
+import java.util.Collections;
+import java.util.List;
 
-public class TaskHistory {
+import static org.apache.tajo.TajoProtos.TaskAttemptState;
+import org.apache.tajo.ipc.TajoWorkerProtocol.TaskHistoryProto;
+import org.apache.tajo.ipc.TajoWorkerProtocol.FetcherHistoryProto;
+
+/**
+ * The history class for Task processing.
+ */
+public class TaskHistory implements ProtoObject<TaskHistoryProto> {
+
+  private QueryUnitAttemptId queryUnitAttemptId;
+  private TaskAttemptState state;
+  private float progress;
   private long startTime;
   private long finishTime;
-
-  private String status;
+  private CatalogProtos.TableStatsProto inputStats;
+  private CatalogProtos.TableStatsProto outputStats;
   private String outputPath;
   private String workingPath;
-  private float progress;
 
-  private TableStats inputStats;
-  private TableStats outputStats;
+  private int finishedFetchCount;
+  private int totalFetchCount;
+  private List<FetcherHistoryProto> fetcherHistories;
 
-  Map<URI, FetcherHistory> fetchers;
+  private String status;
+  private String uri;
+  private long fileLen;
+  private int messageReceiveCount;
 
-  public static class FetcherHistory {
-    private long startTime;
-    private long finishTime;
 
-    private String status;
-    private String uri;
-    private long fileLen;
-    private int messageReceiveCount;
-    private int startcount=1;
-    private int finishcount=1;
-
-    public long getStartTime() {
-        Log.info("====================>" + startcount + "Fetch Start time : " + startTime);
-        startcount++;
-        return startTime; }
-
-    public void setStartTime(long startTime) {
-      this.startTime = startTime;
-    }
-
-    public long getFinishTime() {
-        Log.info("====================>" + finishcount + "Fetch Finish time : " + finishTime);
-        finishcount++;
-        return finishTime; }
-
-    public void setFinishTime(long finishTime) {
-      this.finishTime = finishTime;
-    }
-
-    public String getStatus() {
-      return status;
-    }
-
-    public void setStatus(String status) {
-      this.status = status;
-    }
-
-    public String getUri() {
-      return uri;
-    }
-
-    public void setUri(String uri) {
-      this.uri = uri;
-    }
-
-    public long getFileLen() {
-      return fileLen;
-    }
-
-    public void setFileLen(long fileLen) {
-      this.fileLen = fileLen;
-    }
-
-    public int getMessageReceiveCount() {
-      return messageReceiveCount;
-    }
-
-    public void setMessageReceiveCount(int messageReceiveCount) {
-      this.messageReceiveCount = messageReceiveCount;
-    }
-  }
-
-  public long getStartTime() {
-    return startTime;
-  }
-
-  public void setStartTime(long startTime) {
+  public TaskHistory(QueryUnitAttemptId queryUnitAttemptId, TaskAttemptState state, float progress,
+                     long startTime, long finishTime, CatalogProtos.TableStatsProto inputStats) {
+    init();
+    this.queryUnitAttemptId = queryUnitAttemptId;
+    this.state = state;
+    this.progress = progress;
     this.startTime = startTime;
-  }
-
-  public long getFinishTime() {
-    return finishTime;
-  }
-
-  public void setFinishTime(long finishTime) {
     this.finishTime = finishTime;
+    this.inputStats = inputStats;
   }
 
-  public String getStatus() {
-    return status;
+//<<<<<<< HEAD
+//    private String status;
+//    private String uri;
+//    private long fileLen;
+//    private int messageReceiveCount;
+//    private int startcount=1;
+//    private int finishcount=1;
+//
+//    public long getStartTime() {
+//        Log.info("====================>" + startcount + "Fetch Start time : " + startTime);
+//        startcount++;
+//        return startTime; }
+//=======
+  public TaskHistory(TaskHistoryProto proto) {
+    this.queryUnitAttemptId = new QueryUnitAttemptId(proto.getQueryUnitAttemptId());
+    this.state = proto.getState();
+    this.progress = proto.getProgress();
+    this.startTime = proto.getStartTime();
+    this.finishTime = proto.getFinishTime();
+    this.inputStats = proto.getInputStats();
+
+    if (proto.hasOutputStats()) {
+      this.outputStats = proto.getOutputStats();
+    }
+
+    if (proto.hasOutputPath()) {
+      this.outputPath = proto.getOutputPath();
+    }
+
+//<<<<<<< HEAD
+//    public long getFinishTime() {
+//        Log.info("====================>" + finishcount + "Fetch Finish time : " + finishTime);
+//        finishcount++;
+//        return finishTime; }
+//=======
+    if (proto.hasWorkingPath()) {
+      this.workingPath = proto.getWorkingPath();
+    }
+
+    if (proto.hasFinishedFetchCount()) {
+      this.finishedFetchCount = proto.getFinishedFetchCount();
+    }
+
+    if (proto.hasTotalFetchCount()) {
+      this.totalFetchCount = proto.getTotalFetchCount();
+    }
+
+    this.fetcherHistories = proto.getFetcherHistoriesList();
   }
 
-  public void setStatus(String status) {
-    this.status = status;
+  private void init() {
+    this.fetcherHistories = Lists.newArrayList();
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(queryUnitAttemptId, state);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (o instanceof TaskHistory) {
+      TaskHistory other = (TaskHistory) o;
+      return getProto().equals(other.getProto());
+    }
+    return false;
+  }
+
+  @Override
+  public TaskHistoryProto getProto() {
+    TaskHistoryProto.Builder builder = TaskHistoryProto.newBuilder();
+    builder.setQueryUnitAttemptId(queryUnitAttemptId.getProto());
+    builder.setState(state);
+    builder.setProgress(progress);
+    builder.setStartTime(startTime);
+    builder.setFinishTime(finishTime);
+    builder.setInputStats(inputStats);
+
+    if (outputStats != null) {
+      builder.setOutputStats(outputStats);
+    }
+
+    if (workingPath != null) {
+      builder.setWorkingPath(workingPath);
+    }
+
+    if (totalFetchCount > 0) {
+      builder.setTotalFetchCount(totalFetchCount);
+      builder.setFinishedFetchCount(finishedFetchCount);
+    }
+
+    builder.addAllFetcherHistories(fetcherHistories);
+    return builder.build();
+  }
+
+  public long getStartTime() { return startTime; }
+
+  public long getFinishTime() { return finishTime; }
+
+  public List<FetcherHistoryProto> getFetcherHistories() {
+    return Collections.unmodifiableList(fetcherHistories);
+  }
+
+  public boolean hasFetcherHistories(){
+    return totalFetchCount > 0;
+  }
+
+  public void addFetcherHistory(FetcherHistoryProto fetcherHistory) {
+    fetcherHistories.add(fetcherHistory);
+  }
+
+  public QueryUnitAttemptId getQueryUnitAttemptId() {
+    return queryUnitAttemptId;
+  }
+
+  public TaskAttemptState getState() {
+    return state;
+  }
+
+  public float getProgress() {
+    return progress;
+  }
+
+  public CatalogProtos.TableStatsProto getInputStats() {
+    return inputStats;
   }
 
   public String getOutputPath() {
@@ -142,62 +213,27 @@ public class TaskHistory {
     this.workingPath = workingPath;
   }
 
-  public Collection<FetcherHistory> getFetchers() {
-    return fetchers.values();
+  public Integer getFinishedFetchCount() {
+    return finishedFetchCount;
   }
 
-  public void setFetchers(Map<URI, FetcherHistory> fetchers) {
-    this.fetchers = fetchers;
+  public void setFinishedFetchCount(int finishedFetchCount) {
+    this.finishedFetchCount = finishedFetchCount;
   }
 
-  public float getProgress() {
-    return progress;
+  public Integer getTotalFetchCount() {
+    return totalFetchCount;
   }
 
-  public void setProgress(float progress) {
-    this.progress = progress;
+  public void setTotalFetchCount(int totalFetchCount) {
+    this.totalFetchCount = totalFetchCount;
   }
 
-  public boolean hasFetcher() {
-    return fetchers != null && !fetchers.isEmpty();
-  }
-
-  public TableStats getInputStats() {
-    return inputStats;
-  }
-
-  public void setInputStats(TableStats inputStats) {
-    this.inputStats = inputStats;
-  }
-
-  public TableStats getOutputStats() {
+  public CatalogProtos.TableStatsProto getOutputStats() {
     return outputStats;
   }
 
-  public void setOutputStats(TableStats outputStats) {
+  public void setOutputStats(CatalogProtos.TableStatsProto outputStats) {
     this.outputStats = outputStats;
-  }
-
-  public static String toInputStatsString(TableStats tableStats) {
-    if (tableStats == null) {
-      return "No input statistics";
-    }
-
-    String result = "";
-    result += "TotalBytes: " + FileUtil.humanReadableByteCount(tableStats.getNumBytes(), false) + " ("
-        + tableStats.getNumBytes() + " B)";
-    result += ", ReadBytes: " + FileUtil.humanReadableByteCount(tableStats.getReadBytes(), false) + " ("
-        + tableStats.getReadBytes() + " B)";
-    result += ", ReadRows: " + (tableStats.getNumRows() == 0 ? "-" : tableStats.getNumRows());
-
-    return result;
-  }
-
-  public static String toOutputStatsString(TableStats tableStats) {
-    if (tableStats == null) {
-      return "No output statistics";
-    }
-
-    return tableStats.toJson();
   }
 }

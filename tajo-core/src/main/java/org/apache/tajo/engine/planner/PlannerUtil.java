@@ -53,7 +53,8 @@ public class PlannerUtil {
             (type == NodeType.CREATE_TABLE && !((CreateTableNode) baseNode).hasSubQuery()) ||
             baseNode.getType() == NodeType.DROP_TABLE ||
             baseNode.getType() == NodeType.ALTER_TABLESPACE ||
-            baseNode.getType() == NodeType.ALTER_TABLE;
+            baseNode.getType() == NodeType.ALTER_TABLE ||
+            baseNode.getType() == NodeType.TRUNCATE_TABLE;
   }
 
   /**
@@ -670,6 +671,12 @@ public class PlannerUtil {
         copy.setPID(-1);
       } else {
         copy.setPID(plan.newPID());
+        if (node instanceof DistinctGroupbyNode) {
+          DistinctGroupbyNode dNode = (DistinctGroupbyNode)copy;
+          for (GroupbyNode eachNode: dNode.getGroupByNodes()) {
+            eachNode.setPID(plan.newPID());
+          }
+        }
       }
       return copy;
     } catch (CloneNotSupportedException e) {
