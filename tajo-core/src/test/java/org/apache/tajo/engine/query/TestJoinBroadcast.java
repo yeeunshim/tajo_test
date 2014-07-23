@@ -23,6 +23,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.Path;
 import org.apache.tajo.*;
 import org.apache.tajo.catalog.*;
+import org.apache.tajo.common.TajoDataTypes.Type;
 import org.apache.tajo.conf.TajoConf;
 import org.apache.tajo.datum.Datum;
 import org.apache.tajo.datum.Int4Datum;
@@ -32,11 +33,9 @@ import org.apache.tajo.engine.planner.global.MasterPlan;
 import org.apache.tajo.engine.planner.logical.NodeType;
 import org.apache.tajo.jdbc.TajoResultSet;
 import org.apache.tajo.master.querymaster.QueryMasterTask;
-import org.apache.tajo.storage.Appender;
-import org.apache.tajo.storage.StorageManagerFactory;
-import org.apache.tajo.storage.Tuple;
-import org.apache.tajo.storage.VTuple;
+import org.apache.tajo.storage.*;
 import org.apache.tajo.util.FileUtil;
+import org.apache.tajo.util.KeyValueSet;
 import org.apache.tajo.worker.TajoWorker;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -59,6 +58,7 @@ public class TestJoinBroadcast extends QueryTestCaseBase {
 
     executeDDL("create_lineitem_large_ddl.sql", "lineitem_large");
     executeDDL("create_customer_large_ddl.sql", "customer_large");
+    executeDDL("create_orders_large_ddl.sql", "orders_large");
   }
 
   @Test
@@ -119,6 +119,22 @@ public class TestJoinBroadcast extends QueryTestCaseBase {
 
   @Test
   public final void testLeftOuterJoin1() throws Exception {
+    ResultSet res = executeQuery();
+    assertResultSet(res);
+    cleanupQuery(res);
+  }
+
+  @Test
+  public final void testLeftOuterJoin2() throws Exception {
+    // large, large, small, small
+    ResultSet res = executeQuery();
+    assertResultSet(res);
+    cleanupQuery(res);
+  }
+
+  @Test
+  public final void testLeftOuterJoin3() throws Exception {
+    // large, large, small, large, small, small
     ResultSet res = executeQuery();
     assertResultSet(res);
     cleanupQuery(res);
@@ -446,6 +462,72 @@ public class TestJoinBroadcast extends QueryTestCaseBase {
     cleanupQuery(res);
   }
 
+  @Test
+  public final void testCasebyCase1() throws Exception {
+    // Left outer join with a small table and a large partition table which not matched any partition path.
+    String tableName = CatalogUtil.normalizeIdentifier("largePartitionedTable");
+    testBase.execute(
+        "create table " + tableName + " (l_partkey int4, l_suppkey int4, l_linenumber int4, \n" +
+            "l_quantity float8, l_extendedprice float8, l_discount float8, l_tax float8, \n" +
+            "l_returnflag text, l_linestatus text, l_shipdate text, l_commitdate text, \n" +
+            "l_receiptdate text, l_shipinstruct text, l_shipmode text, l_comment text) \n" +
+            "partition by column(l_orderkey int4) ").close();
+    TajoTestingCluster cluster = testBase.getTestingCluster();
+    CatalogService catalog = cluster.getMaster().getCatalog();
+    assertTrue(catalog.existsTable(DEFAULT_DATABASE_NAME, tableName));
+
+    executeString("insert overwrite into " + tableName +
+        " select l_partkey, l_suppkey, l_linenumber, \n" +
+        " l_quantity, l_extendedprice, l_discount, l_tax, \n" +
+        " l_returnflag, l_linestatus, l_shipdate, l_commitdate, \n" +
+        " l_receiptdate, l_shipinstruct, l_shipmode, l_comment, l_orderkey from lineitem_large");
+
+    ResultSet res = executeString(
+        "select a.l_orderkey as key1, b.l_orderkey as key2 from lineitem as a " +
+            "left outer join " + tableName + " b " +
+            "on a.l_partkey = b.l_partkey and b.l_orderkey = 1000"
+    );
+
+    String expected = "key1,key2\n" +
+        "-------------------------------\n" +
+        "1,null\n" +
+        "1,null\n" +
+        "2,null\n" +
+        "3,null\n" +
+        "3,null\n";
+
+    try {
+      assertEquals(expected, resultSetToString(res));
+    } finally {
+      cleanupQuery(res);
+    }
+  }
+
+  @Test
+  public final void testInnerAndOuterWithEmpty() throws Exception {
+    executeDDL("customer_partition_ddl.sql", null);
+    executeFile("insert_into_customer_partition.sql").close();
+
+    // outer join table is empty
+    ResultSet res = executeString(
+        "select a.l_orderkey, b.o_orderkey, c.c_custkey from lineitem a " +
+            "inner join orders b on a.l_orderkey = b.o_orderkey " +
+            "left outer join customer_broad_parts c on a.l_orderkey = c.c_custkey and c.c_custkey < 0"
+    );
+
+    String expected = "l_orderkey,o_orderkey,c_custkey\n" +
+        "-------------------------------\n" +
+        "1,1,null\n" +
+        "1,1,null\n" +
+        "2,2,null\n" +
+        "3,3,null\n" +
+        "3,3,null\n";
+
+    assertEquals(expected, resultSetToString(res));
+    res.close();
+
+    executeString("DROP TABLE customer_broad_parts PURGE").close();
+  }
 
   static interface TupleCreator {
     public Tuple createTuple(String[] columnDatas);
@@ -492,5 +574,45 @@ public class TestJoinBroadcast extends QueryTestCaseBase {
     }
     appender.flush();
     appender.close();
+  }
+
+  @Test
+  public final void testLeftOuterJoinLeftSideSmallTable() throws Exception {
+    KeyValueSet tableOptions = new KeyValueSet();
+    tableOptions.put(StorageConstants.CSVFILE_DELIMITER, StorageConstants.DEFAULT_FIELD_DELIMITER);
+    tableOptions.put(StorageConstants.CSVFILE_NULL, "\\\\N");
+
+    Schema schema = new Schema();
+    schema.addColumn("id", Type.INT4);
+    schema.addColumn("name", Type.TEXT);
+    String[] data = new String[]{ "1000000|a", "1000001|b", "2|c", "3|d", "4|e" };
+    TajoTestingCluster.createTable("table1", schema, tableOptions, data, 1);
+
+    data = new String[10000];
+    for (int i = 0; i < data.length; i++) {
+      data[i] = i + "|" + "this is testLeftOuterJoinLeftSideSmallTabletestLeftOuterJoinLeftSideSmallTable" + i;
+    }
+    TajoTestingCluster.createTable("table_large", schema, tableOptions, data, 2);
+
+    try {
+      ResultSet res = executeString(
+          "select a.id, b.name from table1 a left outer join table_large b on a.id = b.id order by a.id"
+      );
+
+      String expected = "id,name\n" +
+          "-------------------------------\n" +
+          "2,this is testLeftOuterJoinLeftSideSmallTabletestLeftOuterJoinLeftSideSmallTable2\n" +
+          "3,this is testLeftOuterJoinLeftSideSmallTabletestLeftOuterJoinLeftSideSmallTable3\n" +
+          "4,this is testLeftOuterJoinLeftSideSmallTabletestLeftOuterJoinLeftSideSmallTable4\n" +
+          "1000000,null\n" +
+          "1000001,null\n";
+
+      assertEquals(expected, resultSetToString(res));
+
+      cleanupQuery(res);
+    } finally {
+      executeString("DROP TABLE table1 PURGE").close();
+      executeString("DROP TABLE table_large PURGE").close();
+    }
   }
 }

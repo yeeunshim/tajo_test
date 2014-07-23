@@ -95,11 +95,22 @@ public class Schema implements ProtoObject<SchemaProto>, Cloneable, GsonObject {
    * @param qualifier The qualifier
    */
   public void setQualifier(String qualifier) {
+    Schema copy = null;
+    try {
+      copy = (Schema) clone();
+    } catch (CloneNotSupportedException e) {
+      throw new RuntimeException(e);
+    }
+
+    fields.clear();
     fieldsByQualifiedName.clear();
-    for (int i = 0; i < size(); i++) {
-      Column column = fields.get(i);
-      fields.set(i, new Column(qualifier + "." + column.getSimpleName(), column.getDataType()));
-      fieldsByQualifiedName.put(fields.get(i).getQualifiedName(), i);
+    fieldsByName.clear();
+
+    Column newColumn;
+    for (int i = 0; i < copy.size(); i++) {
+      Column column = copy.getColumn(i);
+      newColumn = new Column(qualifier + "." + column.getSimpleName(), column.getDataType());
+      addColumn(newColumn);
     }
   }
 	
@@ -230,7 +241,7 @@ public class Schema implements ProtoObject<SchemaProto>, Cloneable, GsonObject {
       return true;
     }
     if (fieldsByName.containsKey(name)) {
-      if (fieldsByName.size() > 1) {
+      if (fieldsByName.get(name).size() > 1) {
         throw new RuntimeException("Ambiguous Column name");
       }
       return true;
